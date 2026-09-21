@@ -1,30 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-
-export interface NextRequestLike {
-  headers: {
-    get(name: string): string | null;
-  };
-  url?: string;
-}
-
-export class NextResponseLike {
-  public status: number;
-  public data: any;
-
-  constructor(data: any, init?: { status?: number }) {
-    this.data = data;
-    this.status = init?.status || 200;
-  }
-
-  static rewrite(url: { pathname: string } | URL) {
-    return new NextResponseLike({ rewriteUrl: String(url) });
-  }
-
-  static next() {
-    return new NextResponseLike({ next: true });
-  }
-}
+import { NextRequest, NextResponse } from 'next/server';
 
 // Fallback bộ nhớ nếu chạy ở môi trường Vercel Edge Runtime (không hỗ trợ fs)
 const FALLBACK_DOMAINS = new Set([
@@ -83,19 +59,28 @@ export function getAllowedSubdomains(): Set<string> {
 /**
  * Next.js Proxy Handler - Tự động đối chiếu subdomain từ data/communes.csv
  */
-export default async function proxy(request: NextRequestLike) {
+export default async function proxy(request: NextRequest) {
   const host = request.headers.get('host');
   const hostname = host?.split(':')[0].toLowerCase();
   const slug = hostname?.split('.')[0];
+
+  // Local development does not use a commune subdomain.
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return NextResponse.next();
+  }
 
   // Tự động tải danh sách subdomain từ data/communes.csv
   const allowedSet = getAllowedSubdomains();
 
   // NẾU SUBDOMAIN KHÔNG CÓ TRONG FILE data/communes.csv ──► CHẶN NGAY & BÁO LỖI 404
   if (!slug || (!allowedSet.has(slug) && !allowedSet.has(hostname || ''))) {
-    return NextResponseLike.rewrite({ pathname: '/404' });
+    return NextResponse.rewrite(new URL('/404', request.url));
   }
 
   // NẾU HỢP LỆ ──► Cho phép truy cập bình thường
-  return NextResponseLike.next();
+  return NextResponse.next();
 }
+
+export const config = {
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|.*\\.).*)'],
+};
