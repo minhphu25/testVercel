@@ -1,17 +1,30 @@
 import fs from 'fs';
 import path from 'path';
-import { NextRequest, NextResponse } from 'next/server';
 
-// Fallback bộ nhớ nếu chạy ở môi trường Vercel Edge Runtime (không hỗ trợ fs)
-const FALLBACK_DOMAINS = new Set([
-  'hoankiemhn', 'hoankiem.online',
-  'badinhhn', 'badinh.online',
-  'ngochahn', 'ngocha.online',
-  'giangvohn', 'giangvo.online',
-  'haibatrung', 'haibatrung.online',
-  'vinhtuy', 'vinhtuy.online',
-  'cuanam', 'cuanam.online'
-]);
+export interface NextRequestLike {
+  headers: {
+    get(name: string): string | null;
+  };
+  url?: string;
+}
+
+export class NextResponseLike {
+  public status: number;
+  public data: any;
+
+  constructor(data: any, init?: { status?: number }) {
+    this.data = data;
+    this.status = init?.status || 200;
+  }
+
+  static rewrite(url: { pathname: string } | URL) {
+    return new NextResponseLike({ rewriteUrl: String(url) });
+  }
+
+  static next() {
+    return new NextResponseLike({ next: true });
+  }
+}
 
 // Cache bộ nhớ để tránh đọc lại tệp CSV ở mỗi request
 let allowedSubdomainsCache: Set<string> | null = null;
@@ -44,12 +57,7 @@ export function getAllowedSubdomains(): Set<string> {
       }
     }
   } catch (err) {
-    console.warn('Lưu ý: Không đọc được fs trong Vercel Edge, sử dụng bộ nhớ fallback:', err);
-  }
-
-  // Nếu set trống do Edge Runtime, nạp từ FALLBACK_DOMAINS
-  if (set.size === 0) {
-    FALLBACK_DOMAINS.forEach((item) => set.add(item));
+    console.warn('Lưu ý khi đọc file communes.csv trong proxy:', err);
   }
 
   allowedSubdomainsCache = set;
@@ -59,28 +67,19 @@ export function getAllowedSubdomains(): Set<string> {
 /**
  * Next.js Proxy Handler - Tự động đối chiếu subdomain từ data/communes.csv
  */
-export default async function proxy(request: NextRequest) {
+export default async function proxy(request: NextRequestLike) {
   const host = request.headers.get('host');
   const hostname = host?.split(':')[0].toLowerCase();
   const slug = hostname?.split('.')[0];
-
-  // Local development does not use a commune subdomain.
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return NextResponse.next();
-  }
 
   // Tự động tải danh sách subdomain từ data/communes.csv
   const allowedSet = getAllowedSubdomains();
 
   // NẾU SUBDOMAIN KHÔNG CÓ TRONG FILE data/communes.csv ──► CHẶN NGAY & BÁO LỖI 404
   if (!slug || (!allowedSet.has(slug) && !allowedSet.has(hostname || ''))) {
-    return NextResponse.rewrite(new URL('/404', request.url));
+    return NextResponseLike.rewrite({ pathname: '/404' });
   }
 
   // NẾU HỢP LỆ ──► Cho phép truy cập bình thường
-  return NextResponse.next();
+  return NextResponseLike.next();
 }
-
-export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|.*\\.).*)'],
-};
