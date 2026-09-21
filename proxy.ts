@@ -26,6 +26,17 @@ export class NextResponseLike {
   }
 }
 
+// Fallback bộ nhớ nếu chạy ở môi trường Vercel Edge Runtime (không hỗ trợ fs)
+const FALLBACK_DOMAINS = new Set([
+  'hoankiemhn', 'hoankiem.online',
+  'badinhhn', 'badinh.online',
+  'ngochahn', 'ngocha.online',
+  'giangvohn', 'giangvo.online',
+  'haibatrung', 'haibatrung.online',
+  'vinhtuy', 'vinhtuy.online',
+  'cuanam', 'cuanam.online'
+]);
+
 // Cache bộ nhớ để tránh đọc lại tệp CSV ở mỗi request
 let allowedSubdomainsCache: Set<string> | null = null;
 
@@ -37,25 +48,32 @@ export function getAllowedSubdomains(): Set<string> {
 
   const set = new Set<string>();
   try {
-    const csvPath = path.resolve(process.cwd(), 'data/communes.csv');
-    if (fs.existsSync(csvPath)) {
-      const content = fs.readFileSync(csvPath, 'utf-8');
-      const lines = content.split(/\r?\n/);
-      
-      // Bỏ qua dòng tiêu đề đầu tiên (header), đọc từ dòng thứ 2
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        const parts = line.split(',');
-        const slug = parts[0]?.trim().toLowerCase();
-        const hostname = parts[1]?.trim().toLowerCase();
+    if (typeof fs !== 'undefined' && fs.existsSync) {
+      const csvPath = path.resolve(process.cwd(), 'data/communes.csv');
+      if (fs.existsSync(csvPath)) {
+        const content = fs.readFileSync(csvPath, 'utf-8');
+        const lines = content.split(/\r?\n/);
         
-        if (slug) set.add(slug);
-        if (hostname) set.add(hostname);
+        // Bỏ qua dòng tiêu đề đầu tiên (header), đọc từ dòng thứ 2
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+          const parts = line.split(',');
+          const slug = parts[0]?.trim().toLowerCase();
+          const hostname = parts[1]?.trim().toLowerCase();
+          
+          if (slug) set.add(slug);
+          if (hostname) set.add(hostname);
+        }
       }
     }
   } catch (err) {
-    console.error('Lỗi khi đọc file data/communes.csv trong proxy:', err);
+    console.warn('Lưu ý: Không đọc được fs trong Vercel Edge, sử dụng bộ nhớ fallback:', err);
+  }
+
+  // Nếu set trống do Edge Runtime, nạp từ FALLBACK_DOMAINS
+  if (set.size === 0) {
+    FALLBACK_DOMAINS.forEach((item) => set.add(item));
   }
 
   allowedSubdomainsCache = set;
