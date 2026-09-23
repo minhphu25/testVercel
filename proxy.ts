@@ -1,30 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-export interface NextRequestLike {
-  headers: {
-    get(name: string): string | null;
-  };
-  url?: string;
-}
-
-export class NextResponseLike {
-  public status: number;
-  public data: any;
-
-  constructor(data: any, init?: { status?: number }) {
-    this.data = data;
-    this.status = init?.status || 200;
-  }
-
-  static rewrite(url: { pathname: string } | URL) {
-    return new NextResponseLike({ rewriteUrl: String(url) });
-  }
-
-  static next() {
-    return new NextResponseLike({ next: true });
-  }
-}
+import { NextResponse, NextRequest } from 'next/server';
 
 // Cache bộ nhớ để tránh đọc lại tệp CSV ở mỗi request
 let allowedSubdomainsCache: Set<string> | null = null;
@@ -67,7 +44,7 @@ export function getAllowedSubdomains(): Set<string> {
 /**
  * Next.js Proxy Handler - Tự động đối chiếu subdomain từ data/communes.csv
  */
-export default async function proxy(request: NextRequestLike) {
+export default async function proxy(request: NextRequest) {
   const host = request.headers.get('host');
   const hostname = host?.split(':')[0].toLowerCase();
   const slug = hostname?.split('.')[0];
@@ -77,9 +54,9 @@ export default async function proxy(request: NextRequestLike) {
 
   // NẾU SUBDOMAIN KHÔNG CÓ TRONG FILE data/communes.csv ──► CHẶN NGAY & BÁO LỖI 404
   if (!slug || (!allowedSet.has(slug) && !allowedSet.has(hostname || ''))) {
-    return NextResponseLike.rewrite({ pathname: '/404' });
+    return NextResponse.rewrite(new URL('/404', request.url));
   }
 
   // NẾU HỢP LỆ ──► Cho phép truy cập bình thường
-  return NextResponseLike.next();
+  return NextResponse.next();
 }
